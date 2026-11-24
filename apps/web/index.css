@@ -1,0 +1,220 @@
+/*
+  Nemo-route Design System (Option 3)
+  - Bridges Tailwind v4 utility names to your existing var(--*) values
+  - Persists palette (editions/classic) and theme (dark/light/system) to localStorage
+  - Default: palette="editions" (your dark navy), theme="dark"
+*/
+
+/* ---- 1. Root design tokens (mapped to your var(--*)) ---- */
+:root {
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-warning: var(--warn);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-ok: var(--ok);
+  --color-primary: var(--color-accent);
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+
+  --font-sans: var(--font);
+  --font-mono: var(--mono);
+
+  /* ---Palette "editions" (default dark)--- */
+  --edition-editions-bg: var(--bg);
+  --edition-editions-bg-elevated: var(--bg-elevated);
+  --edition-editions-bg-panel: var(--bg-panel);
+  --edition-editions-border: var(--border);
+  --edition-editions-text: var(--text);
+  --edition-editions-muted: var(--muted);
+  --edition-editions-accent: var(--accent);
+  --edition-editions-accent-dim: var(--accent-dim);
+  --edition-editions-warn: var(--warn);
+  --edition-editions-danger: var(--danger);
+  --edition-editions-info: var(--info);
+  --edition-editions-ok: var(--ok);
+
+  /* ---Palette "classic" (lighter alternative)--- */
+  --edition-classic-bg: #f8fafc;
+  --edition-classic-bg-elevated: #f1f5f9;
+  --edition-classic-bg-panel: #e2e8f0;
+  --edition-classic-border: #cbd5e1;
+  --edition-classic-text: #1e293b;
+  --edition-classic-muted: #64748b;
+  --edition-classic-accent: #76b900;
+  --edition-classic-warning: #e6a700;
+  --edition-classic-danger: #e35d6a;
+  --edition-classic-info: #3db7e8;
+  --edition-classic-ok: #76b900;
+}
+
+/* ---- 2. Tailwind v4 @theme bridge (utilities resolve to above) ---- */
+@theme inline {
+  --color-background: var(--color-background);
+  --color-foreground: var(--color-foreground);
+  --color-muted: var(--color-muted);
+  --color-accent: var(--color-accent);
+  --color-warning: var(--color-warning);
+  --color-danger: var(--color-danger);
+  --color-info: var(--color-info);
+  --color-ok: var(--color-ok);
+  --color-primary: var(--color-primary);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  /* Edition-aware color overrides (applied via .editions vs .classic on html) */
+  [data-palette="editions"] {
+    --color-background: var(--edition-editions-bg);
+    --color-foreground: var(--edition-editions-text);
+    --color-muted: var(--edition-editions-muted);
+    --color-accent: var(--edition-editions-accent);
+    --color-warning: var(--edition-editions-warn);
+    --color-danger: var(--edition-editions-danger);
+    --color-info: var(--edition-editions-info);
+    --color-ok: var(--edition-editions-ok);
+  }
+
+  [data-palette="classic"] {
+    --color-background: var(--edition-classic-bg);
+    --color-foreground: var(--edition-classic-text);
+    --color-muted: var(--edition-classic-muted);
+    --color-accent: var(--edition-classic-accent);
+    --color-warning: var(--edition-classic-warning);
+    --color-danger: var(--edition-classic-danger);
+    --color-info: var(--edition-classic-info);
+    --color-ok: var(--edition-classic-ok);
+  }
+}
+
+/* ---- 3. Light/dark theme toggling ---- */
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --bg-elevated: #f1f5f9;
+  --bg-panel: #e2e8f0;
+  --border: #cbd5e1;
+  --text: #1e293b;
+  --muted: #64748b;
+  --accent: #76b900;
+  --accent-dim: #4f7d00;
+  --warn: #e6a700;
+  --danger: #e35d6a;
+  --info: #3db7e8;
+  --ok: #76b900;
+}
+
+.dark,
+[data-theme="dark"] {
+  --bg: #0a0f14;
+  --bg-elevated: #121a22;
+  --bg-panel: #16202b;
+  --border: #243140;
+  --text: #e7eef6;
+  --muted: #8fa3b8;
+  --accent: #76b900;
+  --accent-dim: #4f7d00;
+  --warn: #e6a700;
+  --danger: #e35d6a;
+  --info: #3db7e8;
+  --ok: #76b900;
+}
+
+/* ---- 4. Component polish (fix double-panel, tighten grids) ---- */
+
+/* Stat component: avoid wrapping in Panel on pages */
+.stat-label {
+  @apply text-xs uppercase tracking-wider text-[var(--muted)] mb-2;
+}
+.stat-value {
+  @apply text-3xl font-semibold mt-2 mono;
+}
+.stat-hint {
+  @apply text-xs text-[var(--muted)] mt-2;
+}
+
+/* Panel: consistent padding and no double borders when used with Stat */
+.panel {
+  @apply rounded-xl border border-[var(--border)] bg-[rgba(18,26,34,0.88)] p-5;
+}
+
+/* Button: standardized focus ring using accent */
+.button {
+  @apply px-3.5 py-2 rounded-md text-sm font-medium transition disabled:opacity-50;
+}
+.button-primary {
+  @apply bg-[var(--accent)] text-black hover:brightness-110;
+}
+.button-ghost {
+  @apply bg-transparent border border-[var(--border)] hover:bg-[var(--bg-panel)];
+}
+.button-danger {
+  @apply bg-[var(--danger)] text-white hover:brightness-110;
+}
+
+/* StatusPill: ensure consistent usage */
+.status-pill {
+  @apply px-2 py-0.5 rounded-full text-xs font-medium;
+}
+
+/* Tables: striped rows, consistent hover */
+.table-striped tbody tr {
+  @apply border-b border-[var(--border)]/70;
+}
+.table-striped tbody tr:hover {
+  @apply bg-[var(--bg-panel)];
+}
+
+/* Input + TextArea focus outline using accent */
+.input,
+.textarea {
+  @apply w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)];
+}
+
+/* ---- 5. Skip-to-content for accessibility ---- */
+.skip-link {
+  @apply absolute left-0 top-[-999px] bg-[var(--bg)] text-[var(--text)] px-4 py-2 z-10 transition focus:left-0 focus:top-0;
+}
+
+/* ---- 6. Navigation link icon colors ---- */
+.nav-icon {
+  @apply w-4 h-4 flex-shrink-0;
+}
+
+/* ---- 7. Topology map animations ---- */
+@keyframes nemo-pulse {
+  0% {
+    stroke-dashoffset: 1000;
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.6;
+  }
+}
+
+.flow-line-pulse {
+  animation: nemo-pulse 2s ease-in-out infinite;
+  stroke-dasharray: 1000;
+}
+
+.flow-line-hover:hover {
+  stroke-width: 8 !important;
+  opacity: 1 !important;
+  filter: brightness(1.3);
+}
+
+.node-hover:hover {
+  cursor: pointer;
+  filter: brightness(1.2) drop-shadow(0 0 8px currentColor);
+}

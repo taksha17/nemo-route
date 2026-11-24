@@ -1,0 +1,44 @@
+node_modules
+dist
+build
+.data
+data/*.db
+data/*.db-*
+*.local
+.env
+.env.*
+!.env.example
+.DS_Store
+coverage
+*.log
+.turbo
+apps/web/dist
+apps/server/dist
+# Stress study artifacts — not part of the repo
+scripts/stress-study/
+scripts/stress-study/results/
+# Random temp files from exploration
+5
+by
+a
+function.ts
+hello.ts
+from
+order
+top
+total
+query.sql
+sample.sql
+customers.sql
+orders.sql
+# Database and data dir
+data/
+# API keys and tokens — never commit
+.env
+.env.*
+# Token routing and live routing state
+.tmp
+# Strix runs and other temp run artifacts
+strix_runs/
+# Amount and other random files
+amount
