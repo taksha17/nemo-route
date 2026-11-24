@@ -58,11 +58,24 @@ export function createAdminRouter(getCtx: () => AppContext) {
     const ctx = getCtx();
     const client = ctx.getNimClient();
     const gov = client?.getGovernorStats();
+    const registry = listRegistry().filter((m) => m.kind === "chat");
+    const health = listHealth();
+    const healthMap = new Map(health.map((h) => [h.modelId, h]));
+    const modelStatus = registry.slice(0, 24).map((m) => ({
+      id: m.id,
+      displayName: m.displayName,
+      tier: m.tier,
+      status: healthMap.get(m.id)?.status ?? "unknown",
+      avgTtftMs: healthMap.get(m.id)?.avgTtftMs ?? null,
+      inCatalog: healthMap.get(m.id)?.inCatalog ?? true,
+    }));
     return c.json({
       ...getOverviewStats(gov),
       hasNimKey: hasNimApiKey(),
       catalog: ctx.catalogSync.getStatus(),
       healthBootstrap: getBootstrapStatus(),
+      modelStatus,
+      governor: gov ?? null,
     });
   });
 
@@ -143,6 +156,23 @@ export function createAdminRouter(getCtx: () => AppContext) {
     const updated = updateModelEntry(id, patch);
     if (!updated) return c.json({ error: "Not found" }, 404);
     return c.json(updated);
+  });
+
+  app.post("/models/:id/probe", async (c) => {
+    const id = c.req.param("id");
+    const ctx = getCtx();
+    const client = ctx.getNimClient();
+    if (!client) return c.json({ error: "NIM API key not configured" }, 503);
+    const { recordProbe } = await import("../scout/health.js");
+    try {
+      const result = await client.probeModel(id);
+      recordProbe(id, result.ok, result.latencyMs, result.status, result.error);
+      return c.json({ ...result, ok: result.ok });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      recordProbe(id, false, 0, undefined, message);
+      return c.json({ ok: false, error: message }, 502);
+    }
   });
 
   app.get("/models/:id/events", (c) => {
@@ -244,12 +274,41 @@ export function createAdminRouter(getCtx: () => AppContext) {
 
   app.get("/requests", (c) => {
     const limit = clampQuery(c.req.query("limit"), 100, 1, 200);
-    return c.json({ requests: listRequests(limit) });
+    const offset = clampQuery(c.req.query("offset"), 0, 0, 10_000);
+    const requests = listRequests({
+      limit,
+      offset,
+      model: c.req.query("model") ?? undefined,
+      taskType: c.req.query("taskType") ?? undefined,
+      outcome: c.req.query("outcome") ?? undefined,
+      q: c.req.query("q") ?? undefined,
+    });
+    return c.json({ requests, limit, offset });
   });
 
   app.get("/usage", (c) => {
     const days = clampQuery(c.req.query("days"), 14, 1, 366);
-    return c.json({ usage: usageByDay(days) });
+    const ctx = getCtx();
+    const gov = ctx.getNimClient()?.getGovernorStats() ?? null;
+    return c.json({ usage: usageByDay(days), governor: gov });
+  });
+
+  app.get("/usage/export", (c) => {
+    const days = clampQuery(c.req.query("days"), 14, 1, 366);
+    const rows = usageByDay(days);
+    const header = "day,workspaceId,requests,inputTokens,outputTokens,failovers\n";
+    const body = rows
+      .map(
+        (r) =>
+          `${r.day},${r.workspaceId},${r.requests},${r.inputTokens},${r.outputTokens},${r.failovers ?? 0}`,
+      )
+      .join("\n");
+    c.header("Content-Type", "text/csv; charset=utf-8");
+    c.header(
+      "Content-Disposition",
+      `attachment; filename="nemo-usage-${days}d.csv"`,
+    );
+    return c.body(header + body + (body ? "\n" : ""));
   });
 
   app.get("/events", (c) => {

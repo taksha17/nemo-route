@@ -8,10 +8,14 @@
     "dev:server": "pnpm --filter @nemo-route/server dev",
     "dev:web": "pnpm --filter @nemo-route/web dev",
     "build": "pnpm -r run build",
+    "build:web": "pnpm --filter @nemo-route/web build",
+    "build:server": "pnpm --filter @nemo-route/server build",
     "test": "pnpm --filter @nemo-route/server test",
+    "test:watch": "pnpm --filter @nemo-route/server test:watch",
     "db:generate": "pnpm --filter @nemo-route/server db:generate",
     "db:migrate": "pnpm --filter @nemo-route/server db:migrate",
-    "start": "pnpm --filter @nemo-route/server start"
+    "start": "pnpm --filter @nemo-route/server start",
+    "docker:build": "docker build -t nemo-route/server:local ."
   },
   "engines": {
     "node": ">=22"

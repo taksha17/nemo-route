@@ -32,6 +32,7 @@ import {
   createOpenAiStreamTerminalState,
   observeOpenAiSse,
 } from "./openaiStream.js";
+import { applyRouteHooks } from "./hooks.js";
 import { rememberStickyModel, selectFallbackChain } from "./selector.js";
 
 /**
@@ -76,7 +77,14 @@ export async function executeChat(
 
   // OpenCode often embeds screenshots / Read(image) as image_url parts. Hosted NIM
   // text models reject those with "--enable-multimodal". Force VL routing.
-  if (hasMultimodalContent(opts.body.messages)) {
+  if (
+    hasMultimodalContent(
+      opts.body.messages as unknown as Array<{
+        content: unknown;
+        [key: string]: unknown;
+      }>,
+    )
+  ) {
     opts.analysis.requiresVision = true;
     if (opts.analysis.taskType === "chat") opts.analysis.taskType = "vision";
   }
@@ -101,6 +109,14 @@ export async function executeChat(
       sessionId: opts.sessionId,
     });
   }
+
+  const hooked = applyRouteHooks({
+    requestedModel: opts.requestedModel,
+    analysis: opts.analysis,
+    chain,
+  });
+  chain = hooked.chain;
+  opts.analysis = hooked.analysis;
 
   if (chain.length === 0) {
     throw new Error("No available models match this request");
@@ -367,9 +383,20 @@ export async function executeChat(
           usage,
           attempts,
           pushSegment,
+          partialStreamBehavior: settings.partialStreamBehavior,
+          onStreamComplete: trackLive
+            ? (finalSegments, chosen) => {
+                finishLiveRouting(requestId, {
+                  status: "done",
+                  chosenModel: chosen,
+                  segments: finalSegments,
+                });
+              }
+            : undefined,
         });
 
-        const result = {
+        // Keep live session active until the SSE pump finishes (see onStreamComplete)
+        return {
           response: new Response(stream, {
             status: 200,
             headers: {
@@ -390,14 +417,6 @@ export async function executeChat(
           tokensEstimated: true,
           requestId,
         };
-        if (trackLive) {
-          finishLiveRouting(requestId, {
-            status: "done",
-            chosenModel: modelId,
-            segments,
-          });
-        }
-        return result;
       } catch (err) {
         clearTimeout(headerTimer);
         clearKeepalive();
@@ -502,7 +521,12 @@ export async function executeChat(
   if (
     lastError &&
     isMultimodalUpstreamError(lastError) &&
-    hasMultimodalContent(requestBody.messages)
+    hasMultimodalContent(
+      requestBody.messages as unknown as Array<{
+        content: unknown;
+        [key: string]: unknown;
+      }>,
+    )
   ) {
     const stripped = {
       ...requestBody,
@@ -582,9 +606,28 @@ function makeContinuableStream(opts: {
   usage: { prompt: number; completion: number; estimated: boolean; text: string };
   attempts: RoutingAttempt[];
   pushSegment?: (segment: TokenRoutingSegment) => void;
+  partialStreamBehavior?: "continue" | "error";
+  onStreamComplete?: (
+    segments: TokenRoutingSegment[],
+    chosenModel: string,
+  ) => void;
 }): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
+  const collectedSegments: TokenRoutingSegment[] = [];
+  let finalChosen = opts.modelId;
+
+  const trackSegment: typeof opts.pushSegment = (segment) => {
+    const idx = collectedSegments.findIndex(
+      (s) =>
+        s.modelId === segment.modelId &&
+        s.startedAt === segment.startedAt &&
+        s.role === segment.role,
+    );
+    if (idx >= 0) collectedSegments[idx] = segment;
+    else collectedSegments.push(segment);
+    opts.pushSegment?.(segment);
+  };
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -684,7 +727,7 @@ function makeContinuableStream(opts: {
           handoffs += 1;
           opts.onKeepalive?.();
           const contStarted = Date.now();
-          opts.pushSegment?.({
+          trackSegment({
             modelId: nextModel,
             role: "continue",
             inputTokens: estimateTokens(
@@ -734,7 +777,7 @@ function makeContinuableStream(opts: {
                 abandonedReason: "idle_timeout_handoff",
                 role: "continue",
               });
-              opts.pushSegment?.({
+              trackSegment({
                 modelId: nextModel,
                 role: "continue",
                 inputTokens: estimateTokens(opts.usage.text),
@@ -760,7 +803,7 @@ function makeContinuableStream(opts: {
               abandonedReason: "midstream_continue",
               role: "continue",
             });
-            opts.pushSegment?.({
+            trackSegment({
               modelId: nextModel,
               role: "continue",
               inputTokens: estimateTokens(opts.usage.text),
@@ -770,6 +813,7 @@ function makeContinuableStream(opts: {
               status: "success",
               label: `handoff → ${nextModel}`,
             });
+            finalChosen = nextModel;
             enqueueTerminal("stop");
             controller.close();
             return;
@@ -785,7 +829,7 @@ function makeContinuableStream(opts: {
               abandonedReason: "handoff_failed",
               role: "continue",
             });
-            opts.pushSegment?.({
+            trackSegment({
               modelId: nextModel,
               role: "continue",
               inputTokens: estimateTokens(opts.usage.text),
@@ -817,6 +861,11 @@ function makeContinuableStream(opts: {
         const pumped = await pumpReader(opts.reader, opts.modelId, true);
         if (pumped.idleTimedOut) {
           recordFailure(opts.modelId, undefined, "idle timeout");
+          if (opts.partialStreamBehavior === "error") {
+            enqueueTerminal("length");
+            controller.close();
+            return;
+          }
           await handoffToNextModels("idle timeout", opts.modelId);
           return;
         }
@@ -825,7 +874,18 @@ function makeContinuableStream(opts: {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         recordFailure(opts.modelId, undefined, message);
+        if (opts.partialStreamBehavior === "error") {
+          try {
+            enqueueTerminal("stop");
+            controller.close();
+          } catch {
+            // consumer gone
+          }
+          return;
+        }
         await handoffToNextModels(message, opts.modelId);
+      } finally {
+        opts.onStreamComplete?.(collectedSegments, finalChosen);
       }
     },
   });

@@ -1,12 +1,13 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { nanoid } from "nanoid";
 import { VIRTUAL_MODELS } from "@nemo-route/shared";
 import type { ApiKeyInfo } from "@nemo-route/shared";
 import { env } from "../config/env.js";
 import { analyzeRequest } from "../router/analyzer.js";
 import { executeChat } from "../router/executor.js";
 import { runOrchestration, sessionIdFromMessages } from "../router/planner.js";
-import { listChatModels, listRegistry } from "../scout/registry.js";
+import { listChatModels } from "../scout/registry.js";
 import { recordRequest } from "../telemetry/recorder.js";
 import type { AppContext } from "../appContext.js";
 import { authenticateApiKey, extractApiKeyFromHeaders } from "./keys.js";
@@ -91,12 +92,9 @@ export function createOpenAIRouter(getCtx: () => AppContext) {
     const requestedModel = body.model || "nemo/auto";
     const started = Date.now();
 
+    // Always use the multi-model planner for orchestrate (tools are described in-plan)
     if (requestedModel === "nemo/orchestrate") {
-      if (body.tools?.length) {
-        // fall through to auto for tool loops
-      } else {
-        return handleOrchestrate(c, ctx, key, client, body, started);
-      }
+      return handleOrchestrate(c, ctx, key, client, body, started);
     }
 
     const analysis = analyzeRequest({
@@ -107,6 +105,7 @@ export function createOpenAIRouter(getCtx: () => AppContext) {
     const sessionId = sessionIdFromMessages(body.messages);
 
     if (body.stream) {
+      c.header("X-Nemo-Request-Id", nanoid());
       return streamSSE(c, async (stream) => {
         let keepaliveCount = 0;
         let streamOpen = true;
@@ -126,12 +125,14 @@ export function createOpenAIRouter(getCtx: () => AppContext) {
             client,
             body: { ...body, model: requestedModel, stream: true },
             analysis,
-            requestedModel:
-              requestedModel === "nemo/orchestrate" ? "nemo/auto" : requestedModel,
+            requestedModel,
             sessionId,
             signal: c.req.raw.signal,
             onKeepalive: safeKeepalive,
           });
+
+          c.header("X-Nemo-Model", result.chosenModel);
+          c.header("X-Nemo-Request-Id", result.requestId);
 
           reader = result.response.body?.getReader();
           if (!reader) throw new Error("No stream body");
@@ -212,8 +213,7 @@ export function createOpenAIRouter(getCtx: () => AppContext) {
         client,
         body: { ...body, stream: false },
         analysis,
-        requestedModel:
-          requestedModel === "nemo/orchestrate" ? "nemo/auto" : requestedModel,
+        requestedModel,
         sessionId,
         signal: c.req.raw.signal,
       });
@@ -238,6 +238,8 @@ export function createOpenAIRouter(getCtx: () => AppContext) {
         promptBody: key.debugBodies ? JSON.stringify(body.messages) : null,
         responseBody: key.debugBodies ? JSON.stringify(json) : null,
       });
+      c.header("X-Nemo-Model", result.chosenModel);
+      c.header("X-Nemo-Request-Id", result.requestId);
       return c.json(json);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -274,10 +276,14 @@ async function handleOrchestrate(
   body: ChatCompletionRequest,
   started: number,
 ) {
-  const prompt = body.messages
+  const userText = body.messages
     .filter((m) => m.role === "user")
     .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
     .join("\n");
+  const toolNote = body.tools?.length
+    ? `\n\nAvailable tools (describe how each subtask would use them; do not invent call IDs):\n${JSON.stringify(body.tools).slice(0, 4000)}`
+    : "";
+  const prompt = `${userText}${toolNote}`;
 
   if (body.stream) {
     return streamSSE(c, async (stream) => {
@@ -401,6 +407,3 @@ async function handleOrchestrate(
     },
   });
 }
-
-// silence unused import in some builds
-void listRegistry;

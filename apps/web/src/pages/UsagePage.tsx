@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { api } from "../lib/api";
+import { api, getAdminToken } from "../lib/api";
 import {
   Button,
   EmptyState,
@@ -80,6 +80,7 @@ function ChartTooltip({
 
 export default function UsagePage() {
   const [usage, setUsage] = useState<any[]>([]);
+  const [governor, setGovernor] = useState<any | null>(null);
   const [range, setRange] = useState<RangeDays>("14");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -90,11 +91,35 @@ export default function UsagePage() {
     try {
       const res = await api.usage(days);
       setUsage(res.usage ?? []);
+      setGovernor(res.governor ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
+  }
+
+  function exportCsv() {
+    const token = getAdminToken();
+    const url = api.usageExportUrl(Number(range));
+    // Browser download with admin header isn't possible via <a>; fetch blob instead
+    void (async () => {
+      try {
+        const res = await fetch(url, {
+          headers: token ? { "x-nemo-admin-token": token } : {},
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const blob = await res.blob();
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = `nemo-usage-${range}d.csv`;
+        a.click();
+        URL.revokeObjectURL(href);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
   }
 
   useEffect(() => {
@@ -179,6 +204,9 @@ export default function UsagePage() {
                 { value: "30", label: "30d" },
               ]}
             />
+            <Button variant="ghost" onClick={exportCsv}>
+              Export CSV
+            </Button>
             <Button onClick={() => void load()} disabled={loading}>
               <Icons.refresh size={15} />
               Refresh
@@ -190,6 +218,25 @@ export default function UsagePage() {
       {error ? (
         <Panel tone="warn" className="mb-5 text-sm">
           {error}
+        </Panel>
+      ) : null}
+
+      {governor ? (
+        <Panel className="mb-5 text-sm">
+          <div className="mb-1 text-xs font-semibold uppercase tracking-[0.06em] text-[var(--muted)]">
+            Rate limit status
+          </div>
+          <div className="flex flex-wrap gap-4">
+            <span>
+              RPM {governor.rpmUsed}/{governor.rpmLimit}
+            </span>
+            <span>
+              Daily {governor.dailyRequests}/{governor.dailyLimit}
+            </span>
+            <span>Queue {governor.queueDepth ?? 0}</span>
+            {governor.inFlight != null ? <span>In-flight {governor.inFlight}</span> : null}
+            <span>Probe budget {governor.probeRpmBudget ?? "—"}</span>
+          </div>
         </Panel>
       ) : null}
 

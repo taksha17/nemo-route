@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAdminRouter } from "./admin/api.js";
+import { buildPrometheusMetrics } from "./admin/metrics.js";
 import { AppContext } from "./appContext.js";
 import { env, isLoopbackHost } from "./config/env.js";
 import { getDb } from "./db/client.js";
@@ -28,6 +29,13 @@ const app = new Hono();
 installGatewayCors(app);
 
 app.get("/healthz", (c) => c.json({ ok: true, name: "nemo-route" }));
+
+app.get("/metrics", (c) => {
+  const gov = ctx.getNimClient()?.getGovernorStats() ?? null;
+  return c.body(buildPrometheusMetrics(ctx, gov), 200, {
+    "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
+  });
+});
 
 // Anthropic routes first so /v1/messages is not swallowed by the OpenAI sub-app
 app.route("/v1", createAnthropicRouter(() => ctx));

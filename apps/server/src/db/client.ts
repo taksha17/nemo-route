@@ -139,7 +139,7 @@ export function getDb() {
   return db;
 }
 
-export function getSqlite() {
+export function getSqlite(): Database.Database {
   getDb();
   return sqlite!;
 }

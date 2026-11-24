@@ -1,21 +1,46 @@
-import { useEffect, useState } from "react";
-import { api } from "../lib/api";
-import { Button, EmptyState, PageHeader, Panel, StatusPill } from "../components/ui";
+import { useEffect, useMemo, useState } from "react";
+import { api, getAdminToken } from "../lib/api";
+import { Button, EmptyState, Input, PageHeader, Panel, StatusPill } from "../components/ui";
 import { Icons } from "../components/icons";
+
+const PAGE = 50;
 
 export default function RequestsPage() {
   const [requests, setRequests] = useState<any[]>([]);
   const [selected, setSelected] = useState<any | null>(null);
+  const [model, setModel] = useState("");
+  const [taskType, setTaskType] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [q, setQ] = useState("");
+  const [offset, setOffset] = useState(0);
 
-  async function load() {
-    setRequests((await api.requests(150)).requests);
+  async function load(nextOffset = offset) {
+    const res = await api.requests(PAGE, {
+      offset: nextOffset,
+      model: model.trim() || undefined,
+      taskType: taskType.trim() || undefined,
+      outcome: outcome.trim() || undefined,
+      q: q.trim() || undefined,
+    });
+    setRequests(res.requests);
+    setOffset(res.offset ?? nextOffset);
   }
 
   useEffect(() => {
-    void load();
-    const t = setInterval(() => void load(), 4000);
+    void load(0);
+    const t = setInterval(() => void load(offset), 5000);
     return () => clearInterval(t);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, taskType, outcome, q]);
+
+  const taskOptions = useMemo(
+    () => ["", "chat", "code", "reasoning", "vision", "summarize", "rewrite", "extract", "other"],
+    [],
+  );
+  const outcomeOptions = useMemo(
+    () => ["", "success", "failover_success", "error", "cancelled"],
+    [],
+  );
 
   return (
     <div>
@@ -23,12 +48,47 @@ export default function RequestsPage() {
         title="Requests"
         subtitle="Live request log with routing traces: classification, chosen model, and failover attempts."
         actions={
-          <Button onClick={() => void load()}>
+          <Button onClick={() => void load(offset)}>
             <Icons.refresh size={15} />
             Refresh
           </Button>
         }
       />
+
+      <Panel className="mb-4 grid grid-cols-1 gap-3 p-4 md:grid-cols-4">
+        <Input
+          placeholder="Search id / model / task"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <Input
+          placeholder="Filter model"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+        />
+        <select
+          className="rounded-[10px] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm"
+          value={taskType}
+          onChange={(e) => setTaskType(e.target.value)}
+        >
+          {taskOptions.map((t) => (
+            <option key={t || "any"} value={t}>
+              {t ? `Task: ${t}` : "All tasks"}
+            </option>
+          ))}
+        </select>
+        <select
+          className="rounded-[10px] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm"
+          value={outcome}
+          onChange={(e) => setOutcome(e.target.value)}
+        >
+          {outcomeOptions.map((o) => (
+            <option key={o || "any"} value={o}>
+              {o ? `Outcome: ${o}` : "All outcomes"}
+            </option>
+          ))}
+        </select>
+      </Panel>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.45fr_1fr]">
         <Panel className="max-h-[72vh] overflow-auto p-0">
@@ -75,6 +135,31 @@ export default function RequestsPage() {
               body="Send traffic through the OpenAI or Anthropic gateway to see routing traces here."
             />
           ) : null}
+          <div className="flex items-center justify-between border-t border-[var(--border)] px-3 py-2">
+            <Button
+              variant="ghost"
+              disabled={offset <= 0}
+              onClick={() => {
+                const next = Math.max(0, offset - PAGE);
+                setOffset(next);
+                void load(next);
+              }}
+            >
+              Prev
+            </Button>
+            <span className="text-xs text-[var(--muted)]">offset {offset}</span>
+            <Button
+              variant="ghost"
+              disabled={requests.length < PAGE}
+              onClick={() => {
+                const next = offset + PAGE;
+                setOffset(next);
+                void load(next);
+              }}
+            >
+              Next
+            </Button>
+          </div>
         </Panel>
 
         <Panel className="max-h-[72vh] overflow-auto">
@@ -114,6 +199,17 @@ export default function RequestsPage() {
                   {JSON.stringify(selected.attempts, null, 2)}
                 </pre>
               </div>
+              {selected.segments?.length ? (
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-[0.06em] text-[var(--muted)]">
+                    Segments
+                  </div>
+                  <pre className="mono overflow-auto rounded-[10px] border border-[var(--border)] bg-[var(--bg)] p-3 text-xs leading-relaxed">
+                    {JSON.stringify(selected.segments, null, 2)}
+                  </pre>
+                </div>
+              ) : null}
+              {!getAdminToken() ? null : null}
             </div>
           ) : (
             <EmptyState

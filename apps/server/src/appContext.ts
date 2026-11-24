@@ -32,6 +32,10 @@ export class AppContext {
     seedRegistry();
     this.catalogSync.start();
     this.probeLoop.start();
+    if (env.skipBootstrap) {
+      console.log("[nemo-route] skipping startup health bootstrap (NEMO_SKIP_BOOTSTRAP)");
+      return;
+    }
     // Eager health sweep as soon as a NIM key exists
     void this.runBootstrap("startup");
   }

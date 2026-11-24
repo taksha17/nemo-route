@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
-import { Button, PageHeader, Panel, Stat } from "../components/ui";
+import { Button, PageHeader, Panel, Stat, StatusPill } from "../components/ui";
 import { Icons } from "../components/icons";
 
 export default function OverviewPage() {
@@ -109,6 +109,47 @@ export default function OverviewPage() {
           hint={data?.catalog?.lastError ?? "ok"}
         />
       </div>
+
+      <Panel className="mt-5 overflow-auto p-0">
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+          <h2 className="text-sm font-semibold tracking-[-0.02em]">Model status</h2>
+          <Link to="/models" className="text-xs font-semibold text-[var(--accent)]">
+            All models →
+          </Link>
+        </div>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Tier</th>
+              <th>Status</th>
+              <th>TTFT</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(data?.modelStatus ?? []).map((m: any) => (
+              <tr key={m.id}>
+                <td>
+                  <div className="font-semibold tracking-[-0.02em]">{m.displayName}</div>
+                  <div className="mono mt-0.5 text-xs text-[var(--muted)]">{m.id}</div>
+                </td>
+                <td>{m.tier}</td>
+                <td>
+                  <StatusPill status={m.status ?? "unknown"} />
+                </td>
+                <td className="mono text-xs text-[var(--muted)]">
+                  {m.avgTtftMs != null ? `${Math.round(m.avgTtftMs)}ms` : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!data?.modelStatus?.length ? (
+          <div className="px-4 py-6 text-sm text-[var(--muted)]">
+            No chat models registered yet.
+          </div>
+        ) : null}
+      </Panel>
     </div>
   );
 }

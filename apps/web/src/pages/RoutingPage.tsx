@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import {
   Button,
@@ -19,6 +20,7 @@ export default function RoutingPage() {
   const [prefTab, setPrefTab] = useState<PrefKey>("chat");
   const [prefsText, setPrefsText] = useState("");
   const [prefsError, setPrefsError] = useState<string | null>(null);
+  const [liveCount, setLiveCount] = useState(0);
 
   useEffect(() => {
     void api
@@ -28,6 +30,17 @@ export default function RoutingPage() {
         setPrefsText(JSON.stringify(s.taskPreferences ?? {}, null, 2));
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    void api
+      .tokenRouting()
+      .then((t) => setLiveCount(t.active?.length ?? 0))
+      .catch(() => setLiveCount(0));
+    const timer = setInterval(() => {
+      void api
+        .tokenRouting()
+        .then((t) => setLiveCount(t.active?.length ?? 0))
+        .catch(() => undefined);
+    }, 4000);
+    return () => clearInterval(timer);
   }, []);
 
   if (!settings && !error) {
@@ -75,9 +88,17 @@ export default function RoutingPage() {
         title="Routing"
         subtitle="Timeouts, probe budget, partial-stream behavior, and soft model preferences by task type."
         actions={
-          <Button onClick={() => void save()} disabled={saving}>
-            {saving ? "Saving…" : "Save changes"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/token-routing"
+              className="inline-flex items-center rounded-[10px] border border-[var(--border)] px-3 py-2 text-sm font-semibold"
+            >
+              Live sessions ({liveCount})
+            </Link>
+            <Button onClick={() => void save()} disabled={saving}>
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
         }
       />
 

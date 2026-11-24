@@ -146,33 +146,84 @@ function reseal(value: string | null): string | null {
   return openText(value) == null ? null : value;
 }
 
-export function listRequests(limit = 100, workspaceId = env.workspaceId): RequestTrace[] {
+export interface ListRequestsFilter {
+  limit?: number;
+  offset?: number;
+  model?: string;
+  taskType?: string;
+  outcome?: string;
+  q?: string;
+  workspaceId?: string;
+}
+
+export function listRequests(
+  limitOrFilter: number | ListRequestsFilter = 100,
+  workspaceIdArg = env.workspaceId,
+): RequestTrace[] {
+  const filter: ListRequestsFilter =
+    typeof limitOrFilter === "number"
+      ? { limit: limitOrFilter, workspaceId: workspaceIdArg }
+      : limitOrFilter;
+  const workspaceId = filter.workspaceId ?? workspaceIdArg;
   const db = getDb();
-  const bounded = clampInt(limit, 100, 1, MAX_REQUEST_PAGE);
-  return db
+  const bounded = clampInt(filter.limit ?? 100, 100, 1, MAX_REQUEST_PAGE);
+  const offset = clampInt(filter.offset ?? 0, 0, 0, 10_000);
+  // Fetch a wider window then filter in memory — SQLite LIKE across JSON is awkward
+  // and request volume is bounded by retention.
+  const fetchN = Math.min(MAX_REQUEST_PAGE * 5, Math.max(bounded + offset, bounded * 3));
+  let rows = db
     .select()
     .from(requests)
     .where(eq(requests.workspaceId, workspaceId))
     .orderBy(desc(requests.createdAt))
-    .limit(bounded)
-    .all()
-    .map((row) => ({
-      id: row.id,
-      workspaceId: row.workspaceId,
-      keyId: row.keyId,
-      requestedModel: row.requestedModel,
-      chosenModel: row.chosenModel,
-      taskType: row.taskType as RequestTrace["taskType"],
-      complexity: row.complexity as RequestTrace["complexity"],
-      inputTokens: row.inputTokens,
-      outputTokens: row.outputTokens,
-      tokensEstimated: Boolean(row.tokensEstimated),
-      ttftMs: row.ttftMs,
-      durationMs: row.durationMs,
-      outcome: row.outcome as RequestOutcome,
-      ...parseAttempts(row.attemptsJson),
-      createdAt: row.createdAt,
-    }));
+    .limit(fetchN)
+    .all();
+
+  if (filter.model) {
+    const m = filter.model.toLowerCase();
+    rows = rows.filter(
+      (r) =>
+        r.requestedModel.toLowerCase().includes(m) ||
+        (r.chosenModel ?? "").toLowerCase().includes(m),
+    );
+  }
+  if (filter.taskType) {
+    const t = filter.taskType.toLowerCase();
+    rows = rows.filter((r) => (r.taskType ?? "").toLowerCase() === t);
+  }
+  if (filter.outcome) {
+    const o = filter.outcome.toLowerCase();
+    rows = rows.filter((r) => (r.outcome ?? "").toLowerCase() === o);
+  }
+  if (filter.q) {
+    const q = filter.q.toLowerCase();
+    rows = rows.filter(
+      (r) =>
+        r.id.toLowerCase().includes(q) ||
+        r.requestedModel.toLowerCase().includes(q) ||
+        (r.chosenModel ?? "").toLowerCase().includes(q) ||
+        (r.taskType ?? "").toLowerCase().includes(q) ||
+        (r.outcome ?? "").toLowerCase().includes(q),
+    );
+  }
+
+  return rows.slice(offset, offset + bounded).map((row) => ({
+    id: row.id,
+    workspaceId: row.workspaceId,
+    keyId: row.keyId,
+    requestedModel: row.requestedModel,
+    chosenModel: row.chosenModel,
+    taskType: row.taskType as RequestTrace["taskType"],
+    complexity: row.complexity as RequestTrace["complexity"],
+    inputTokens: row.inputTokens,
+    outputTokens: row.outputTokens,
+    tokensEstimated: Boolean(row.tokensEstimated),
+    ttftMs: row.ttftMs,
+    durationMs: row.durationMs,
+    outcome: row.outcome as RequestOutcome,
+    ...parseAttempts(row.attemptsJson),
+    createdAt: row.createdAt,
+  }));
 }
 
 function parseAttempts(raw: string): {

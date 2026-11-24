@@ -23,10 +23,11 @@ export function getSettings(workspaceId = env.workspaceId): WorkspaceSettings {
       timeouts: {
         ...DEFAULT_SETTINGS.timeouts,
         ...(stored.timeouts ?? {}),
-        // Floor idle so older saved 60s settings don't truncate long NIM streams
+        // Prefer explicit saved idle; otherwise env/default. Floor at 60s so tiny
+        // legacy values don't truncate long NIM streams.
         idleMs: Math.max(
+          60_000,
           stored.timeouts?.idleMs ?? DEFAULT_SETTINGS.timeouts.idleMs,
-          DEFAULT_SETTINGS.timeouts.idleMs,
         ),
       },
       // Always prefer the latest curated routing preferences (light models first for chat)

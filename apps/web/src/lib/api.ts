@@ -108,6 +108,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+  probeModel: (id: string) =>
+    adminFetch<{ ok: boolean; latencyMs?: number; error?: string }>(
+      `/models/${encodeURIComponent(id)}/probe`,
+      { method: "POST" },
+    ),
   modelEvents: (id: string) =>
     adminFetch<{ events: any[] }>(`/models/${encodeURIComponent(id)}/events`),
   syncCatalog: () => adminFetch("/catalog/sync", { method: "POST" }),
@@ -119,9 +124,23 @@ export const api = {
     }),
   revokeKey: (id: string) =>
     adminFetch(`/keys/${id}/revoke`, { method: "POST" }),
-  requests: (limit = 100) =>
-    adminFetch<{ requests: any[] }>(`/requests?limit=${limit}`),
-  usage: (days = 14) => adminFetch<{ usage: any[] }>(`/usage?days=${days}`),
+  requests: (
+    limit = 100,
+    opts?: { offset?: number; model?: string; taskType?: string; outcome?: string; q?: string },
+  ) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (opts?.offset != null) params.set("offset", String(opts.offset));
+    if (opts?.model) params.set("model", opts.model);
+    if (opts?.taskType) params.set("taskType", opts.taskType);
+    if (opts?.outcome) params.set("outcome", opts.outcome);
+    if (opts?.q) params.set("q", opts.q);
+    return adminFetch<{ requests: any[]; limit: number; offset: number }>(
+      `/requests?${params.toString()}`,
+    );
+  },
+  usage: (days = 14) =>
+    adminFetch<{ usage: any[]; governor?: any }>(`/usage?days=${days}`),
+  usageExportUrl: (days = 14) => `/admin/usage/export?days=${days}`,
   snippets: () => adminFetch<any>("/harness-snippets"),
   tokenRouting: () => adminFetch<any>("/token-routing"),
   tokenRoutingOne: (id: string) =>

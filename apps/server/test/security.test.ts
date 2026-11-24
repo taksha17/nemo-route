@@ -1,4 +1,7 @@
 import { createCipheriv, randomBytes, scryptSync } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Hono } from "hono";
 import { afterAll, describe, expect, it } from "vitest";
 import type { AppContext } from "../src/appContext.js";
@@ -109,7 +112,7 @@ describe("admin authentication and secret storage", () => {
     ).toThrow();
   });
 
-  it("refuses shipped default secrets", () => {
+  it("refuses shipped default secrets when explicitly set", () => {
     const previousEncryption = process.env.NEMO_ENCRYPTION_SECRET;
     const previousAdmin = process.env.NEMO_ADMIN_TOKEN;
     process.env.NEMO_ENCRYPTION_SECRET = "dev-local-nemo-route-secret-change-in-prod";
@@ -118,6 +121,32 @@ describe("admin authentication and secret storage", () => {
     expect(() => env.adminToken).toThrow(/NEMO_ADMIN_TOKEN/);
     process.env.NEMO_ENCRYPTION_SECRET = previousEncryption;
     process.env.NEMO_ADMIN_TOKEN = previousAdmin;
+  });
+
+  it("auto-generates secrets when env vars are unset", () => {
+    const previousEncryption = process.env.NEMO_ENCRYPTION_SECRET;
+    const previousAdmin = process.env.NEMO_ADMIN_TOKEN;
+    const previousData = process.env.NEMO_DATA_DIR;
+    const dir = path.join(os.tmpdir(), `nemo-secret-test-${Date.now()}`);
+    fs.mkdirSync(dir, { recursive: true });
+    process.env.NEMO_DATA_DIR = dir;
+    delete process.env.NEMO_ENCRYPTION_SECRET;
+    delete process.env.NEMO_ADMIN_TOKEN;
+    env.resetDataDirCache();
+    const enc = env.encryptionSecret;
+    const admin = env.adminToken;
+    expect(enc.length).toBeGreaterThanOrEqual(16);
+    expect(admin.length).toBeGreaterThanOrEqual(16);
+    expect(fs.existsSync(path.join(dir, ".nemo-operator.json"))).toBe(true);
+    // Stable across reads
+    expect(env.encryptionSecret).toBe(enc);
+    expect(env.adminToken).toBe(admin);
+    process.env.NEMO_ENCRYPTION_SECRET = previousEncryption;
+    process.env.NEMO_ADMIN_TOKEN = previousAdmin;
+    if (previousData == null) delete process.env.NEMO_DATA_DIR;
+    else process.env.NEMO_DATA_DIR = previousData;
+    env.resetDataDirCache();
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it("stores debug bodies encrypted and drops rows past the retention window", () => {

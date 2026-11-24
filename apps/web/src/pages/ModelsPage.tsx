@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import {
   Button,
+  Input,
   PageHeader,
   Panel,
   SegmentedControl,
@@ -13,6 +14,10 @@ import { Icons } from "../components/icons";
 export default function ModelsPage() {
   const [models, setModels] = useState<any[]>([]);
   const [filter, setFilter] = useState<"all" | "chat" | "other">("chat");
+  const [probing, setProbing] = useState<string | null>(null);
+  const [editingNotes, setEditingNotes] = useState<string | null>(null);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
 
   async function load() {
     const res = await api.models();
@@ -30,6 +35,31 @@ export default function ModelsPage() {
     if (filter === "other") return m.kind !== "chat";
     return true;
   });
+
+  async function probe(id: string) {
+    setProbing(id);
+    setMsg(null);
+    try {
+      const res = await api.probeModel(id);
+      setMsg(res.ok ? `Probe ok for ${id}` : `Probe failed: ${res.error ?? "unknown"}`);
+      await load();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setProbing(null);
+    }
+  }
+
+  async function saveNotes(id: string) {
+    try {
+      await api.patchModel(id, { notes: notesDraft });
+      setEditingNotes(null);
+      setMsg(`Notes saved for ${id}`);
+      await load();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   return (
     <div>
@@ -51,6 +81,12 @@ export default function ModelsPage() {
           </div>
         }
       />
+
+      {msg ? (
+        <Panel tone="warn" className="mb-4 text-sm">
+          {msg}
+        </Panel>
+      ) : null}
 
       <div className="mb-4 flex items-center justify-between gap-3">
         <SegmentedControl
@@ -76,6 +112,7 @@ export default function ModelsPage() {
               <th>Status</th>
               <th>Latency</th>
               <th>Capabilities</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -84,6 +121,23 @@ export default function ModelsPage() {
                 <td>
                   <div className="font-semibold tracking-[-0.02em]">{m.displayName}</div>
                   <div className="mono mt-0.5 text-xs text-[var(--muted)]">{m.id}</div>
+                  {editingNotes === m.id ? (
+                    <div className="mt-2 flex flex-col gap-2">
+                      <Input
+                        value={notesDraft}
+                        onChange={(e) => setNotesDraft(e.target.value)}
+                        placeholder="Notes"
+                      />
+                      <div className="flex gap-2">
+                        <Button onClick={() => void saveNotes(m.id)}>Save</Button>
+                        <Button variant="ghost" onClick={() => setEditingNotes(null)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : m.notes ? (
+                    <div className="mt-1 text-xs text-[var(--muted)]">{m.notes}</div>
+                  ) : null}
                 </td>
                 <td className="text-[var(--muted)]">{m.kind}</td>
                 <td className="mono text-xs">{formatContext(m.contextTokens)}</td>
@@ -105,6 +159,26 @@ export default function ModelsPage() {
                   {m.inputs?.join(", ")}
                   {m.tools ? " · tools" : ""}
                   {m.strengths?.length ? ` · ${m.strengths.join(", ")}` : ""}
+                </td>
+                <td>
+                  <div className="flex flex-col gap-1">
+                    <Button
+                      variant="ghost"
+                      disabled={probing === m.id || m.kind !== "chat"}
+                      onClick={() => void probe(m.id)}
+                    >
+                      {probing === m.id ? "Probing…" : "Probe"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setEditingNotes(m.id);
+                        setNotesDraft(m.notes ?? "");
+                      }}
+                    >
+                      Notes
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
